@@ -1,9 +1,11 @@
 #include <arpa/inet.h>
+#include <asm-generic/socket.h>
 #include <netinet/in.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -13,7 +15,8 @@ int sockfd;
 
 void stop(int signal) {
   close(sockfd);
-  printf("disconnected\n");
+  printf("\ndisconnected\n");
+  exit(0);
 }
 
 int main(int argc, char **argv) {
@@ -48,13 +51,30 @@ int main(int argc, char **argv) {
 
   char buffer[BUFFER_LENGTH];
 
+  int status = 0;
+  int ret = 0;
+  socklen_t len = sizeof(status);
+
   while (1) {
     printf("enter a message: ");
     fgets(buffer, BUFFER_LENGTH, stdin);
 
-    if (-1 == send(sockfd, buffer, strlen(buffer), 0)) {
+    int bytes = 0;
+    if (-1 == (bytes = send(sockfd, buffer, strlen(buffer), 0))) {
       perror("send");
       exit(1);
     }
+
+    if (0 != (ret = getsockopt(sockfd, SOL_SOCKET, SO_ERROR, &status, &len))) {
+      printf("%s", strerror(ret));
+    }
+
+    if (status != 0) {
+      close(sockfd);
+      printf("connection lost\n");
+      exit(0);
+    }
+
+    bzero(buffer, BUFFER_LENGTH);
   }
 }

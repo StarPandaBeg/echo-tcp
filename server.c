@@ -1,5 +1,6 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -8,6 +9,16 @@
 
 #define BUFFER_LENGTH 512
 #define MAX_CONNECTIONS 3
+
+int sockfd;
+
+void stop(int signal) {
+  close(sockfd);
+  printf("\nserver closed\n");
+  exit(0);
+}
+
+void break_connection(int signal) { exit(0); }
 
 int main(int argc, char **argv) {
 
@@ -18,7 +29,7 @@ int main(int argc, char **argv) {
 
   int port = atoi(argv[1]);
 
-  int sockfd, incoming_socket;
+  int incoming_socket;
   struct sockaddr_in sai;
 
   socklen_t slen = sizeof(sai);
@@ -31,6 +42,8 @@ int main(int argc, char **argv) {
     perror("socket");
     exit(1);
   }
+
+  signal(SIGINT, stop);
 
   sai.sin_addr.s_addr = INADDR_ANY;
   sai.sin_port = htons(port);
@@ -60,11 +73,17 @@ int main(int argc, char **argv) {
       inet_ntop(AF_INET, &sai, buffer_ip, slen);
       printf("Incoming connection from %s\n", buffer_ip);
 
+      signal(SIGINT, break_connection);
+
       memset(buffer, 0, BUFFER_LENGTH);
 
-      ssize_t len = read(incoming_socket, buffer, BUFFER_LENGTH - 1);
+      int bytes = 0;
+      while (0 != (bytes = recv(incoming_socket, buffer, BUFFER_LENGTH, 0))) {
+        printf("[%s]: %s\n", buffer_ip, buffer);
+        bzero(buffer, BUFFER_LENGTH);
+      }
 
-      printf("DATA RECIEVED(%zd) from %s: %s\n\n", len, buffer_ip, buffer);
+      printf("%s disconnected\n", buffer_ip);
 
       close(incoming_socket);
     }
