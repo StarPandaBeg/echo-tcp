@@ -46,7 +46,7 @@ int main(int argc, char **argv) {
     exit(1);
   }
 
-  printf("server started on port: %d\n", port);
+  printf("server started on port %d\n", port);
 
   while (1) {
     if (0 >
@@ -63,7 +63,6 @@ int main(int argc, char **argv) {
       memset(buffer, 0, BUFFER_LENGTH);
 
       ssize_t len = read(incoming_socket, buffer, BUFFER_LENGTH - 1);
-      // buffer[len] = '\0';
 
       printf("DATA RECIEVED(%zd) from %s: %s\n\n", len, buffer_ip, buffer);
 
