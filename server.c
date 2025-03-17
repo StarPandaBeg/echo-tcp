@@ -6,86 +6,106 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include <sys/time.h>
+#include <errno.h>
 
 #define BUFFER_LENGTH 512
 #define MAX_CONNECTIONS 3
+#define TIMEOUT_SECONDS 30
 
 int sockfd;
 
 void stop(int signal) {
-  close(sockfd);
-  printf("\nserver closed\n");
-  exit(0);
+    close(sockfd);
+    printf("\nserver closed\n");
+    exit(0);
 }
 
-void break_connection(int signal) { exit(0); }
+void break_connection(int signal) { 
+    exit(0); 
+}
 
 int main(int argc, char **argv) {
-
-  if (argc < 2) {
-    printf("%s: usage %s <port>\n", argv[0], argv[0]);
-    exit(1);
-  }
-
-  int port = atoi(argv[1]);
-
-  int incoming_socket;
-  struct sockaddr_in sai;
-
-  socklen_t slen = sizeof(sai);
-
-  char buffer[BUFFER_LENGTH];
-
-  memset((char *)&sai, 0, slen);
-
-  if (0 > (sockfd = socket(AF_INET, SOCK_STREAM, 0))) {
-    perror("socket");
-    exit(1);
-  }
-
-  signal(SIGINT, stop);
-
-  sai.sin_addr.s_addr = INADDR_ANY;
-  sai.sin_port = htons(port);
-  sai.sin_family = AF_INET;
-
-  if (0 > bind(sockfd, (struct sockaddr *)&sai, sizeof(sai))) {
-    perror("bind");
-    exit(1);
-  }
-
-  if (0 > listen(sockfd, MAX_CONNECTIONS)) {
-    perror("listen");
-    exit(1);
-  }
-
-  printf("server started on port %d\n", port);
-
-  while (1) {
-    if (0 >
-        (incoming_socket = accept(sockfd, (struct sockaddr *)&sai, &slen))) {
-      perror("accept");
-      exit(1);
+    if (argc < 2) {
+        printf("%s: usage %s <port>\n", argv[0], argv[0]);
+        exit(1);
     }
 
-    if (fork() == 0) {
-      char buffer_ip[16];
-      inet_ntop(AF_INET, &sai, buffer_ip, slen);
-      printf("Incoming connection from %s\n", buffer_ip);
+    int port = atoi(argv[1]);
+    int incoming_socket;
+    struct sockaddr_in sai;
+    socklen_t slen = sizeof(sai);
+    char buffer[BUFFER_LENGTH];
 
-      signal(SIGINT, break_connection);
+    memset((char *)&sai, 0, slen);
 
-      memset(buffer, 0, BUFFER_LENGTH);
-
-      int bytes = 0;
-      while (0 != (bytes = recv(incoming_socket, buffer, BUFFER_LENGTH, 0))) {
-        printf("[%s]: %s\n", buffer_ip, buffer);
-        bzero(buffer, BUFFER_LENGTH);
-      }
-
-      printf("%s disconnected\n", buffer_ip);
-
-      close(incoming_socket);
+    if (0 > (sockfd = socket(AF_INET, SOCK_STREAM, 0))) {
+        perror("socket");
+        exit(1);
     }
-  }
+
+    signal(SIGINT, stop);
+
+    sai.sin_addr.s_addr = INADDR_ANY;
+    sai.sin_port = htons(port);
+    sai.sin_family = AF_INET;
+
+    if (0 > bind(sockfd, (struct sockaddr *)&sai, sizeof(sai))) {
+        perror("bind");
+        exit(1);
+    }
+
+    if (0 > listen(sockfd, MAX_CONNECTIONS)) {
+        perror("listen");
+        exit(1);
+    }
+
+    printf("server started on port %d\n", port);
+
+    while (1) {
+        if (0 > (incoming_socket = accept(sockfd, (struct sockaddr *)&sai, &slen))) {
+            perror("accept");
+            exit(1);
+        }
+
+        if (fork() == 0) {
+            char buffer_ip[16];
+            inet_ntop(AF_INET, &sai, buffer_ip, slen);
+            printf("Incoming connection from %s\n", buffer_ip);
+
+            struct timeval tv;
+            tv.tv_sec = TIMEOUT_SECONDS;
+            tv.tv_usec = 0;
+            
+            if (setsockopt(incoming_socket, SOL_SOCKET, SO_RCVTIMEO, 
+                          (const char*)&tv, sizeof tv) < 0) {
+                perror("setsockopt timeout");
+                close(incoming_socket);
+                exit(1);
+            }
+
+            signal(SIGINT, break_connection);
+            memset(buffer, 0, BUFFER_LENGTH);
+
+            int bytes = 0;
+            while (0 != (bytes = recv(incoming_socket, buffer, BUFFER_LENGTH, 0))) {
+                if (bytes < 0) {
+                    if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                        printf("%s timed out after %d seconds of inactivity\n", 
+                               buffer_ip, TIMEOUT_SECONDS);
+                        break;
+                    }
+                    perror("recv");
+                    break;
+                }
+                printf("[%s]: %s\n", buffer_ip, buffer);
+                bzero(buffer, BUFFER_LENGTH);
+            }
+
+            printf("%s disconnected\n", buffer_ip);
+            close(incoming_socket);
+            exit(0);
+        }
+        close(incoming_socket);
+    }
 }
